@@ -23,7 +23,7 @@ public:
   void convertToGrid(double range, double angle, int &x_grid, int &y_grid);
   void markObstacle(int x_grid, int y_grid);
   void inflateObstacles();
-  void publishCostmap();
+  void publishCostmap(const sensor_msgs::msg::LaserScan::SharedPtr scan);
 
 private:
   // Place these constructs here
@@ -38,9 +38,12 @@ private:
   int width_ = GRIDSIZE;
   int height_ = GRIDSIZE;
   double inflation_radius_ = 10; // 1 meter inflation radius
-  int max_cost_ = 100;            // Max cost for occupied cells
+  int max_cost_ = 100;           // Max cost for occupied cells
   double origin_x_ = -20.0;
   double origin_y_ = -20.0;
+  double orientation_w_ = 1.0;
+
+  nav_msgs::msg::OccupancyGrid costmap_msg;
 };
 
 #endif

@@ -40,7 +40,8 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
     if (range < scan->range_max && range > scan->range_min)
     {
       // Calculate grid coordinates
-      int x_grid, y_grid;
+      int x_grid = 0;
+      int y_grid = 0;
       convertToGrid(range, angle, x_grid, y_grid);
       markObstacle(x_grid, y_grid);
     }
@@ -50,7 +51,7 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
   inflateObstacles();
 
   // Step 4: Publish costmap
-  publishCostmap();
+  publishCostmap(scan);
 }
 
 void CostmapNode::initializeCostmap()
@@ -92,9 +93,10 @@ void CostmapNode::inflateObstacles()
             {
               int new_x = x + dx;
               int new_y = y + dy;
-              if (new_x >= 0 && new_x < width_ && new_y >= 0 && new_y < height_)
+              if (new_x >= 0 && new_x < GRIDSIZE && new_y >= 0 && new_y < GRIDSIZE)
               {
-                occupancy_grid[new_y][new_x] = std::max(occupancy_grid[new_y][new_x], static_cast<int8_t>(max_cost_ * (1 - (sqrt(dx * dx + dy * dy) / inflation_radius_))));
+                int8_t new_cost = static_cast<int8_t>(max_cost_ * (1 - (sqrt(dx * dx + dy * dy) / inflation_radius_)));
+                occupancy_grid[new_y][new_x] = std::max(occupancy_grid[new_y][new_x], new_cost);
               }
             }
           }
@@ -104,13 +106,10 @@ void CostmapNode::inflateObstacles()
   }
 }
 
-void CostmapNode::publishCostmap()
+void CostmapNode::publishCostmap(const sensor_msgs::msg::LaserScan::SharedPtr scan)
 {
-  nav_msgs::msg::OccupancyGrid costmap_msg;
-
   // header
-  costmap_msg.header.stamp = this->now();
-  costmap_msg.header.frame_id = "sim_world";
+  costmap_msg.header = scan->header;
 
   // info
   costmap_msg.info.resolution = resolution_;
@@ -118,15 +117,16 @@ void CostmapNode::publishCostmap()
   costmap_msg.info.height = GRIDSIZE;
   costmap_msg.info.origin.position.x = origin_x_;
   costmap_msg.info.origin.position.y = origin_y_;
+  costmap_msg.info.origin.orientation.w = orientation_w_;
 
   // Flatten the 2D costmap array into a 1D array
-  costmap_msg.data.resize(width_ * height_);
+  costmap_msg.data.resize(width_ * height_, -1);
   for (int y = 0; y < GRIDSIZE; ++y)
   {
     for (int x = 0; x < GRIDSIZE; ++x)
     {
       int index = y * GRIDSIZE + x;
-      costmap_msg.data[index] = occupancy_grid[y][x];
+      costmap_msg.data[index] = std::max(occupancy_grid[y][x], static_cast<int8_t>(0));
     }
   }
 
