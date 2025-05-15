@@ -19,7 +19,15 @@ MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(robot::MapMemor
       std::chrono::seconds(1), std::bind(&MapMemoryNode::updateMap, this));
 
   // === Initialize empty map ===
-  setupEmptyGlobalMap();
+  global_map_.info.resolution = 0.1;
+  global_map_.info.origin.position.x = -20.0;
+  global_map_.info.origin.position.y = -20.0;
+  global_map_.info.origin.orientation.w = orientation_w_;
+  global_map_.info.width = GRIDSIZE;
+  global_map_.info.height = GRIDSIZE;
+  global_map_.data = std::vector<int8_t>(GRIDSIZE * GRIDSIZE, 0);
+  has_global_map_ = true;
+  costmap_processing_ = false;
 }
 
 // Callback for costmap updates
@@ -29,38 +37,28 @@ void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPt
   costmap_updated_ = true;
 }
 
-void MapMemoryNode::setupEmptyGlobalMap()
-{
-  global_map_.info.resolution = 0.1;
-  global_map_.info.origin.position.x = -15.0;
-  global_map_.info.origin.position.y = -15.0;
-  global_map_.info.origin.orientation.w = 1.0;
-  global_map_.info.width = GLOBALMAPSIZE;
-  global_map_.info.height = GLOBALMAPSIZE;
-  global_map_.data.resize(GLOBALMAPSIZE * GLOBALMAPSIZE, 0);
-  has_global_map_ = true;
-}
-
 // Callback for odometry updates
 void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
-  double x = msg->pose.pose.position.x;
-  double y = msg->pose.pose.position.y;
+  // update the values
+  x = msg->pose.pose.position.x;
+  y = msg->pose.pose.position.y;
   yaw = qToYaw(msg->pose.pose.orientation);
+
   // Compute distance traveled
-  double distance = std::sqrt(std::pow(x - last_x, 2) + std::pow(y - last_y, 2));
+  double distance = std::hypot(x - last_x, y - last_y);
   if (distance >= distance_threshold)
   {
     last_x = x;
     last_y = y;
     should_update_map_ = true;
+    costmap_processing_ = false;
   }
 }
 
-double MapMemoryNode::qToYaw(const geometry_msgs::msg::Quaternion& q) {
-  double sin = 2.0 * (q.w * q.z + q.x * q.y);
-  double cos = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
-  double yaw = std::atan2(sin, cos);
+double MapMemoryNode::qToYaw(const geometry_msgs::msg::Quaternion &q)
+{
+  double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
   return yaw;
 }
 
@@ -72,66 +70,50 @@ void MapMemoryNode::updateMap()
     integrateCostmap();
     map_pub_->publish(global_map_);
     should_update_map_ = false;
-    costmap_updated_ = false;
   }
 }
 
-// // Integrate the latest costmap into the global map
-// void MapMemoryNode::integrateCostmap()
-// {
-//   // Transform and merge the latest costmap into the global map
-//   // (Implementation would handle grid alignment and merging logic)
-// }
+void MapMemoryNode::integrateCostmap()
+{
+  double oxg = x + latest_costmap_.info.origin.position.x;
+  double oyg = y + latest_costmap_.info.origin.position.y;
 
-void MapMemoryNode::integrateCostmap() {
-  int costmap_w = latest_costmap_.info.width;
-  int costmap_h = latest_costmap_.info.height;
-  double resolution = latest_costmap_.info.resolution;
+  double cx = GRIDSIZE / 2.0;
+  double cy = GRIDSIZE / 2.0;
+  double res = latest_costmap_.info.resolution;
 
-  // Initialize a temporary 2D grid to store merged results
-  std::vector<std::vector<int>> temp_grid(GLOBALMAPSIZE, std::vector<int>(GLOBALMAPSIZE, -1));
+  for (unsigned int iy = 0; iy < latest_costmap_.info.height; ++iy)
+  {
+    for (unsigned int ix = 0; ix < latest_costmap_.info.width; ++ix)
+    {
+      double dx = (ix - cx) * res;
+      double dy = (iy - cy) * res;
 
-  for (int i = 0; i < costmap_h; ++i) {
-    for (int j = 0; j < costmap_w; ++j) {
-      int8_t costmap_val = latest_costmap_.data[i * costmap_w + j];
-      if (costmap_val == 0) continue;
+      double rot_x = cos(yaw) * dx - sin(yaw) * dy;
+      double rot_y = sin(yaw) * dx + cos(yaw) * dy;
 
-      double rel_x = j * resolution + latest_costmap_.info.origin.position.x;
-      double rel_y = i * resolution + latest_costmap_.info.origin.position.y;
+      double global_x_m = rot_x + oxg + cx * res;
+      double global_y_m = rot_y + oyg + cy * res;
 
-      // Rotate relative to robot yaw
-      double rotated_x = rel_x * std::cos(yaw) - rel_y * std::sin(yaw);
-      double rotated_y = rel_x * std::sin(yaw) + rel_y * std::cos(yaw);
+      int gx = static_cast<int>((global_x_m - global_map_.info.origin.position.x) / global_map_.info.resolution);
+      int gy = static_cast<int>((global_y_m - global_map_.info.origin.position.y) / global_map_.info.resolution);
 
-      // Translate to global
-      double global_x = rotated_x + last_x;
-      double global_y = rotated_y + last_y;
-
-      // Convert to grid
-      int gx = (int)((global_x - global_map_.info.origin.position.x) / resolution);
-      int gy = (int)((global_y - global_map_.info.origin.position.y) / resolution);
-
-      if (gx < 0 || gx >= GLOBALMAPSIZE || gy < 0 || gy >= GLOBALMAPSIZE) continue;
-
-      // Blend with old value
-      int prev = temp_grid[gy][gx];
-      int blended = (prev < 0) ? costmap_val : (int)(costmap_val * 0.8 + prev * 0.2);
-      temp_grid[gy][gx] = blended;
-    }
-  }
-
-  global_map_.header.frame_id = "sim_world";
-  global_map_.header.stamp = this->now();
-
-  // Flatten 2D to 1D
-  for (int i = 0; i < GLOBALMAPSIZE; ++i) {
-    for (int j = 0; j < GLOBALMAPSIZE; ++j) {
-      int idx = i * GLOBALMAPSIZE + j;
-      if (temp_grid[i][j] > -1 && global_map_.data[idx] < temp_grid[i][j]) {
-        global_map_.data[idx] = temp_grid[i][j];
+      if (gx >= 0 && gx < static_cast<int>(global_map_.info.width) &&
+          gy >= 0 && gy < static_cast<int>(global_map_.info.height))
+      {
+        int cost_idx = iy * latest_costmap_.info.width + ix;
+        if (latest_costmap_.data[cost_idx] > 0)
+        {
+          global_map_.data[gy * global_map_.info.width + gx] =
+              latest_costmap_.data[cost_idx];
+        }
       }
     }
   }
+
+  global_map_.header = latest_costmap_.header;
+  global_map_.header.frame_id = "sim_world";
+  costmap_updated_ = false;
 }
 
 int main(int argc, char **argv)
