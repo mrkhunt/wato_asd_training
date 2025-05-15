@@ -56,7 +56,7 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
 
 void CostmapNode::initializeCostmap()
 {
-  occupancy_grid.resize(GRIDSIZE, std::vector<int8_t>(GRIDSIZE, 0)); // Initialize all cells to a default value (e.g., 0 for free space).
+  occupancy_grid = std::vector<std::vector<int8_t>>(GRIDSIZE, std::vector<int8_t>(GRIDSIZE, 0)); // Initialize all cells to a default value (e.g., 0 for free space).
 }
 
 void CostmapNode::convertToGrid(double range, double angle, int &x_grid, int &y_grid)
