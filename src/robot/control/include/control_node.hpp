@@ -27,9 +27,9 @@ public:
 private:
   robot::ControlCore control_;
 
-  double lookahead_distance_ = 1.0; // Lookahead distance
+  double lookahead_distance_ = 1.5; // Lookahead distance
   double goal_tolerance_ = 0.1;     // Distance to consider the goal reached
-  double linear_speed_ = 0.5;       // Constant forward speed
+  double linear_speed_ = 0.4;       // Constant forward speed
 
   // Subscribers and Publishers
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;

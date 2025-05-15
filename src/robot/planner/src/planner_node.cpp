@@ -105,7 +105,7 @@ bool PlannerNode::isValid(const CellIndex &idx)
   if (idx.x < 0 || idx.y < 0 || idx.x >= w || idx.y >= h)
     return false;
   int8_t val = current_map_.data[idx.y * w + idx.x];
-  return val >= 0 && val < 50; // free cell
+  return val >= 0 && val < 1; // free cell
 }
 
 std::vector<std::pair<int, int>> PlannerNode::neighborOffsets()
@@ -149,7 +149,6 @@ void PlannerNode::planPath()
 {
   if (!goal_received_ || current_map_.data.empty())
   {
-    RCLCPP_WARN(this->get_logger(), "Cannot plan path: Missing map or goal!");
     return;
   }
 
